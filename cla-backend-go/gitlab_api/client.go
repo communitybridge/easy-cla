@@ -19,6 +19,27 @@ import (
 	goGitLab "github.com/xanzy/go-gitlab"
 )
 
+type GitLabClient interface {
+	GetMergeRequestCommits(projectID int, mergeID int, opts *goGitLab.GetMergeRequestCommitsOptions) ([]*goGitLab.Commit, error)
+	ListUsers(opts *goGitLab.ListUsersOptions) ([]*goGitLab.User, error)
+	SetCommitStatus(projectID int, commitSHA string, opts *goGitLab.SetCommitStatusOptions) error
+	GetProject(gitLabProjectID int, opts *goGitLab.GetProjectOptions) (*goGitLab.Project, error)
+	// EditProject(projectID int,)
+	ListGroupProjects(groupID int, opts *goGitLab.ListGroupProjectsOptions) ([]*goGitLab.Project, *goGitLab.Response, error)
+	ListGroupMembers(gid interface{}, opt *goGitLab.ListGroupMembersOptions) ([]*goGitLab.GroupMember, *goGitLab.Response, error)
+	CurrentUser() (*goGitLab.User, *goGitLab.Response, error)
+	ListUserProjects(user interface{}, opt *goGitLab.ListProjectsOptions) ([]*goGitLab.Project, *goGitLab.Response, error)
+	DeleteProjectHook(projectID, webhookID int) (*goGitLab.Response, error)
+	ListProjectHooks(projectID int, opts *goGitLab.ListProjectHooksOptions) ([]*goGitLab.ProjectHook, *goGitLab.Response, error)
+	AddProjectHook(projectID int, opts *goGitLab.AddProjectHookOptions) (*goGitLab.ProjectHook, *goGitLab.Response, error)
+	EditProjectHook(projectID, existingID int, opts *goGitLab.EditProjectHookOptions) (*goGitLab.ProjectHook, *goGitLab.Response, error)
+}
+
+// Client is the gitlab client
+type GitLabClientWrapper struct {
+	gitlabClient *goGitLab.Client
+}
+
 // OauthSuccessResponse is success response from Gitlab
 type OauthSuccessResponse struct {
 	AccessToken  string `json:"access_token"`
@@ -29,7 +50,7 @@ type OauthSuccessResponse struct {
 }
 
 // NewGitlabOauthClient creates a new gitlab client from the given oauth info, authInfo is encrypted
-func NewGitlabOauthClient(authInfo string, gitLabApp *App) (*goGitLab.Client, error) {
+func NewGitlabOauthClient(authInfo string, gitLabApp *App) (GitLabClient, error) {
 	if authInfo == "" {
 		return nil, errors.New("unable to decrypt auth info - authentication info input is nil")
 	}
@@ -47,7 +68,14 @@ func NewGitlabOauthClient(authInfo string, gitLabApp *App) (*goGitLab.Client, er
 	}
 
 	log.Infof("creating oauth client with access token : %s", oauthResp.AccessToken)
-	return goGitLab.NewOAuthClient(oauthResp.AccessToken)
+	client, err := goGitLab.NewOAuthClient(oauthResp.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &GitLabClientWrapper{
+		gitlabClient: client,
+	}, nil
 }
 
 // NewGitlabOauthClientFromAccessToken creates a new gitlab client from the given access token
@@ -153,4 +181,71 @@ func decrypt(key, cipherText []byte) ([]byte, error) {
 	cfb.XORKeyStream(cipherText, cipherText)
 
 	return cipherText, nil
+}
+
+func (c *GitLabClientWrapper) ListGroupMembers(gid interface{}, opt *goGitLab.ListGroupMembersOptions) ([]*goGitLab.GroupMember, *goGitLab.Response, error) {
+	return c.gitlabClient.Groups.ListGroupMembers(gid, opt)
+}
+
+func (c *GitLabClientWrapper) GetProject(gitLabProjectID int, opts *goGitLab.GetProjectOptions) (*goGitLab.Project, error) {
+	project, _, err := c.gitlabClient.Projects.GetProject(gitLabProjectID, opts)
+	if err != nil {
+		return nil, err
+	}
+	return project, err
+}
+
+func (c *GitLabClientWrapper) CurrentUser() (*goGitLab.User, *goGitLab.Response, error) {
+	return c.gitlabClient.Users.CurrentUser()
+}
+
+// GetMergeRequestCommits returns the commits for the given merge request
+func (c *GitLabClientWrapper) GetMergeRequestCommits(projectID int, mergeID int, opts *goGitLab.GetMergeRequestCommitsOptions) ([]*goGitLab.Commit, error) {
+	commits, _, err := c.gitlabClient.MergeRequests.GetMergeRequestCommits(projectID, mergeID, opts)
+	if err != nil {
+		return nil, err
+	}
+	return commits, nil
+}
+
+// ListUsers returns the list of users
+func (c *GitLabClientWrapper) ListUsers(opts *goGitLab.ListUsersOptions) ([]*goGitLab.User, error) {
+	users, _, err := c.gitlabClient.Users.ListUsers(opts)
+	if err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+// SetCommitStatus sets the commit status
+func (c *GitLabClientWrapper) SetCommitStatus(projectID int, commitSHA string, opts *goGitLab.SetCommitStatusOptions) error {
+	_, _, err := c.gitlabClient.Commits.SetCommitStatus(projectID, commitSHA, opts)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *GitLabClientWrapper) ListGroupProjects(groupID int, opts *goGitLab.ListGroupProjectsOptions) ([]*goGitLab.Project, *goGitLab.Response, error) {
+	return c.gitlabClient.Groups.ListGroupProjects(groupID, opts)
+}
+
+func (c *GitLabClientWrapper) ListUserProjects(user interface{}, opt *goGitLab.ListProjectsOptions) ([]*goGitLab.Project, *goGitLab.Response, error) {
+	return c.gitlabClient.Projects.ListUserProjects(user, opt)
+}
+
+func (c *GitLabClientWrapper) DeleteProjectHook(projectID, webhookID int) (*goGitLab.Response, error) {
+	return c.gitlabClient.Projects.DeleteProjectHook(projectID, webhookID)
+}
+
+func (c *GitLabClientWrapper) ListProjectHooks(projectID int, opts *goGitLab.ListProjectHooksOptions) ([]*goGitLab.ProjectHook, *goGitLab.Response, error) {
+	return c.gitlabClient.Projects.ListProjectHooks(projectID, opts)
+}
+
+func (c *GitLabClientWrapper) AddProjectHook(projectID int, opts *goGitLab.AddProjectHookOptions) (*goGitLab.ProjectHook, *goGitLab.Response, error) {
+	return c.gitlabClient.Projects.AddProjectHook(projectID, opts)
+}
+
+func (c *GitLabClientWrapper) EditProjectHook(projectID, existingID int, opts *goGitLab.EditProjectHookOptions) (*goGitLab.ProjectHook, *goGitLab.Response, error) {
+	return c.gitlabClient.Projects.EditProjectHook(projectID, existingID, opts)
 }
