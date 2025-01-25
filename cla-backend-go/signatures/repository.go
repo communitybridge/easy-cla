@@ -106,6 +106,7 @@ type SignatureRepository interface {
 	EclaAutoCreate(ctx context.Context, signatureID string, autoCreateECLA bool) error
 	ActivateSignature(ctx context.Context, signatureID string) error
 	GetICLAByDate(ctx context.Context, startDate string) ([]ItemSignature, error)
+	GetCompanyECLASignatures(ctx context.Context, companyID string) ([]*ItemSignature, error)
 }
 
 type iclaSignatureWithDetails struct {
@@ -171,6 +172,50 @@ func (repo repository) CreateSignature(ctx context.Context, signature *ItemSigna
 
 	return nil
 
+}
+
+func (repo repository) GetCompanyECLASignatures(ctx context.Context, companyID string) ([]*ItemSignature, error) {
+	f := logrus.Fields{
+		"functionName": "v1.signatures.repository.GetCompanyECLASignatures",
+		"companyID":    companyID,
+	}
+	log.WithFields(f).Debugf("fetching company ecla records")
+	var itemSignatures []*ItemSignature
+
+	condition := expression.Key("signature_user_ccla_company_id").Equal(expression.Value(companyID))
+	// filter := expression.Name("signature_signed").Equal(expression.Value(true)).And(expression.Name("signature_approved").Equal(expression.Value(true)))
+
+	expr, err := expression.NewBuilder().WithKeyCondition(condition).Build()
+	if err != nil {
+		return nil, err
+	}
+
+	// Assemble the query input parameters
+	queryInput := &dynamodb.QueryInput{
+		ExpressionAttributeNames:  expr.Names(),
+		ExpressionAttributeValues: expr.Values(),
+		KeyConditionExpression:    expr.KeyCondition(),
+		// FilterExpression:          expr.Filter(),
+		TableName:                 aws.String(repo.signatureTableName),
+		IndexName: aws.String("signature-user-ccla-company-index"),
+	}
+
+	results, err := repo.dynamoDBClient.Query(queryInput)
+	if err != nil {
+		return nil, err
+	}
+
+	// No match, didn't find it
+	if *results.Count == 0 {
+		return nil, nil
+	}
+
+	err = dynamodbattribute.UnmarshalListOfMaps(results.Items, &itemSignatures)
+	if err != nil {
+		return nil, err
+	}
+
+	return itemSignatures, nil
 }
 
 // GetItemSignature returns the signature for the specified signature id

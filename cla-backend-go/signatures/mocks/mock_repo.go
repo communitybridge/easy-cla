@@ -260,6 +260,21 @@ func (mr *MockSignatureRepositoryMockRecorder) GetClaGroupICLASignatures(ctx, cl
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClaGroupICLASignatures", reflect.TypeOf((*MockSignatureRepository)(nil).GetClaGroupICLASignatures), ctx, claGroupID, searchTerm, approved, signed, pageSize, nextKey, withExtraDetails)
 }
 
+// GetCompanyECLASignatures mocks base method.
+func (m *MockSignatureRepository) GetCompanyECLASignatures(ctx context.Context, companyID string) ([]*signatures0.ItemSignature, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCompanyECLASignatures", ctx, companyID)
+	ret0, _ := ret[0].([]*signatures0.ItemSignature)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCompanyECLASignatures indicates an expected call of GetCompanyECLASignatures.
+func (mr *MockSignatureRepositoryMockRecorder) GetCompanyECLASignatures(ctx, companyID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCompanyECLASignatures", reflect.TypeOf((*MockSignatureRepository)(nil).GetCompanyECLASignatures), ctx, companyID)
+}
+
 // GetCompanyIDsWithSignedCorporateSignatures mocks base method.
 func (m *MockSignatureRepository) GetCompanyIDsWithSignedCorporateSignatures(ctx context.Context, claGroupID string) ([]signatures0.SignatureCompanyID, error) {
 	m.ctrl.T.Helper()
