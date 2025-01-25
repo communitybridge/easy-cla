@@ -85,7 +85,7 @@ func getProjectListWithOptions(ctx context.Context, client *goGitLab.Client, opt
 }
 
 // GetProjectByID returns the GitLab project for the specified ID
-func GetProjectByID(ctx context.Context, client *goGitLab.Client, gitLabProjectID int) (*goGitLab.Project, error) {
+func GetProjectByID(ctx context.Context, client GitLabClient, gitLabProjectID int) (*goGitLab.Project, error) {
 	f := logrus.Fields{
 		"functionName":    "gitlab.client.GetProjectByID",
 		utils.XREQUESTID:  ctx.Value(utils.XREQUESTID),
@@ -93,14 +93,9 @@ func GetProjectByID(ctx context.Context, client *goGitLab.Client, gitLabProjectI
 	}
 
 	// Query GitLab for repos - fetch the list of repositories available to the GitLab App
-	project, resp, getProjectErr := client.Projects.GetProject(gitLabProjectID, &goGitLab.GetProjectOptions{})
+	project, getProjectErr := client.GetProject(gitLabProjectID, &goGitLab.GetProjectOptions{})
 	if getProjectErr != nil {
 		msg := fmt.Sprintf("unable to get project by ID: %d, error: %+v", gitLabProjectID, getProjectErr)
-		log.WithFields(f).WithError(getProjectErr).Warn(msg)
-		return nil, errors.New(msg)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		msg := fmt.Sprintf("unable to get project by ID: %d, status code: %d", gitLabProjectID, resp.StatusCode)
 		log.WithFields(f).WithError(getProjectErr).Warn(msg)
 		return nil, errors.New(msg)
 	}
@@ -116,14 +111,14 @@ func GetProjectByID(ctx context.Context, client *goGitLab.Client, gitLabProjectI
 // EnableMergePipelineProtection enables the pipeline protection on given project, by default it's
 // turned off and when a new MR is raised users can merge requests bypassing the pipelines. With this
 // setting gitlab disables the Merge button if any of the pipelines are failing
-func EnableMergePipelineProtection(ctx context.Context, gitlabClient *goGitLab.Client, projectID int) error {
+func EnableMergePipelineProtection(ctx context.Context, gitlabClient GitLabClient, projectID int) error {
 	f := logrus.Fields{
 		"functionName":    "gitlab.client.EnableMergePipelineProtection",
 		utils.XREQUESTID:  ctx.Value(utils.XREQUESTID),
 		"gitLabProjectID": projectID,
 	}
 
-	project, _, err := gitlabClient.Projects.GetProject(projectID, &goGitLab.GetProjectOptions{})
+	project, err := gitlabClient.GetProject(projectID, &goGitLab.GetProjectOptions{})
 	if err != nil {
 		return fmt.Errorf("fetching project failed : %v", err)
 	}
@@ -135,7 +130,7 @@ func EnableMergePipelineProtection(ctx context.Context, gitlabClient *goGitLab.C
 
 	project.OnlyAllowMergeIfPipelineSucceeds = true
 	log.WithFields(f).Debugf("Enabling Merge Pipeline protection")
-	_, _, err = gitlabClient.Projects.EditProject(projectID, &goGitLab.EditProjectOptions{
+	_, _, err = gitlabClient.EditProject(projectID, &goGitLab.EditProjectOptions{
 		OnlyAllowMergeIfPipelineSucceeds: goGitLab.Bool(true),
 	})
 

@@ -14,6 +14,16 @@ import (
 	"github.com/xanzy/go-gitlab"
 )
 
+type UserCommitSummary struct {
+	AuthorID       int
+	AuthorUsername string
+	CommitSha      string
+	AuthorName     string
+	AuthorEmail    string
+	Authorized     bool
+	Affiliated     bool
+}
+
 // FetchMrInfo is responsible for fetching the MR info for given project
 func FetchMrInfo(client *gitlab.Client, projectID int, mergeID int) (*gitlab.MergeRequest, error) {
 	m, _, err := client.MergeRequests.GetMergeRequest(projectID, mergeID, &gitlab.GetMergeRequestsOptions{})
@@ -24,7 +34,7 @@ func FetchMrInfo(client *gitlab.Client, projectID int, mergeID int) (*gitlab.Mer
 	return m, nil
 }
 
-func GetLatestCommit(client *gitlab.Client, projectID int, mergeID int) (*gitlab.Commit, error) {
+func GetLatestCommit(client GitLabClient, projectID int, mergeID int) (*gitlab.Commit, error) {
 	f := logrus.Fields{
 		"functionName": "gitlab_api.GetLatestCommit",
 		"projectID":    projectID,
@@ -32,7 +42,7 @@ func GetLatestCommit(client *gitlab.Client, projectID int, mergeID int) (*gitlab
 	}
 
 	log.WithFields(f).Debug("fetching latest commit...")
-	commits, _, err := client.MergeRequests.GetMergeRequestCommits(projectID, mergeID, &gitlab.GetMergeRequestCommitsOptions{})
+	commits, err := client.GetMergeRequestCommits(projectID, mergeID, &gitlab.GetMergeRequestCommitsOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("fetching merge request commits : %d for project : %v failed : %v", mergeID, projectID, err)
 	}
@@ -45,27 +55,25 @@ func GetLatestCommit(client *gitlab.Client, projectID int, mergeID int) (*gitlab
 }
 
 // FetchMrParticipants is responsible to get unique mr participants
-func FetchMrParticipants(client *gitlab.Client, projectID int, mergeID int) ([]*gitlab.User, error) {
+func FetchMrParticipants(client GitLabClient, projectID int, mergeID int) ([]*UserCommitSummary, error) {
 	f := logrus.Fields{
 		"functionName": "gitlab_api.FetchMrParticipants",
 		"projectID":    projectID,
 		"mergeID":      mergeID,
 	}
+
+	results := make([]*UserCommitSummary, 0)
+
 	log.WithFields(f).Debug("fetching mr participants...")
-	commits, response, err := client.MergeRequests.GetMergeRequestCommits(projectID, mergeID, &gitlab.GetMergeRequestCommitsOptions{})
+	commits, err := client.GetMergeRequestCommits(projectID, mergeID, &gitlab.GetMergeRequestCommitsOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("fetching gitlab participants for project : %d and merge id : %d, failed : %v", projectID, mergeID, err)
-	}
-	if response.StatusCode != 200 {
-		return nil, fmt.Errorf("fetching gitlab participants for project : %d and merge id : %d, failed with status code : %d", projectID, mergeID, response.StatusCode)
 	}
 
 	if len(commits) == 0 {
 		log.WithFields(f).Debugf("no commits found for project : %d and merge id : %d", projectID, mergeID)
-		return nil, nil
+		return results, nil
 	}
-
-	var results []*gitlab.User
 
 	for _, commit := range commits {
 		log.WithFields(f).Debugf("commit information: %v", commit)
@@ -82,6 +90,8 @@ func FetchMrParticipants(client *gitlab.Client, projectID int, mergeID int) ([]*
 			return nil, getUserErr
 		}
 
+		user.CommitSha = commit.ShortID
+
 		results = append(results, user)
 	}
 
@@ -89,7 +99,7 @@ func FetchMrParticipants(client *gitlab.Client, projectID int, mergeID int) ([]*
 }
 
 // SetCommitStatus is responsible for setting the MR status for commit sha
-func SetCommitStatus(client *gitlab.Client, projectID int, commitSha string, state gitlab.BuildStateValue, message string, targetURL string) error {
+func SetCommitStatus(client GitLabClient, projectID int, commitSha string, state gitlab.BuildStateValue, message string, targetURL string) error {
 	f := logrus.Fields{
 		"functionName": "gitlab_api.SetCommitStatus",
 		"projectID":    projectID,
@@ -110,7 +120,7 @@ func SetCommitStatus(client *gitlab.Client, projectID int, commitSha string, sta
 		options.TargetURL = gitlab.String(targetURL)
 	}
 
-	_, _, err := client.Commits.SetCommitStatus(projectID, commitSha, options)
+	err := client.SetCommitStatus(projectID, commitSha, options)
 	if err != nil {
 		return fmt.Errorf("setting commit status for the sha : %s and project id : %d failed : %v", commitSha, projectID, err)
 	}
@@ -161,23 +171,24 @@ func SetMrComment(client *gitlab.Client, projectID int, mergeID int, message str
 }
 
 // getUser is responsible for fetching the user info for given user email
-func getUser(client *gitlab.Client, email, name *string) (*gitlab.User, error) {
+func getUser(client GitLabClient, email, name *string) (*UserCommitSummary, error) {
 	f := logrus.Fields{
 		"functionName": "gitlab_api.getUser",
 		"email":        *email,
 		"name":         *name,
 	}
 
-	user := &gitlab.User{
-		Email: *email,
-		Name:  *name,
+	user := &UserCommitSummary{
+		AuthorEmail: *email,
+		AuthorName:  *name,
 	}
 
-	users, _, err := client.Users.ListUsers(&gitlab.ListUsersOptions{
+	users, err := client.ListUsers(&gitlab.ListUsersOptions{
 		Active:  utils.Bool(true),
 		Blocked: utils.Bool(false),
 		Search:  email,
 	})
+
 	if err != nil {
 		log.WithFields(f).Warnf("unable to find user for email : %s, error : %v", utils.StringValue(email), err)
 		return nil, err
@@ -193,8 +204,8 @@ func getUser(client *gitlab.Client, email, name *string) (*gitlab.User, error) {
 	for _, found := range users {
 		if strings.EqualFold(found.Name, *name) {
 			log.WithFields(f).Debugf("found matching user : %+v - updating GitLab username and ID", found)
-			user.Username = found.Username
-			user.ID = found.ID
+			user.AuthorID = found.ID
+			user.AuthorUsername = found.Username
 			break
 		}
 	}

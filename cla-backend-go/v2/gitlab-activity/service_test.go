@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/communitybridge/easycla/cla-backend-go/gen/v1/models"
+	"github.com/golang/mock/gomock"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/xanzy/go-gitlab"
@@ -200,4 +201,112 @@ func TestPrepareMrCommentContent(t *testing.T) {
 		}
 	}
 
+}
+
+func TestService_ProcessMergeActivity(t *testing.T) {
+	type testCase struct {
+		name               string
+		secretToken        string
+		input              *ProcessMergeActivityInput
+		expectedError      error
+		expectedCommitSha  string
+		expectedMissing    []*gitlab_api.UserCommitSummary
+		expectedSigned     []*gitlab_api.UserCommitSummary
+		expectedCommitMsg  string
+		expectedCommitURL  string
+		expectedCommitStat gitlab.CommitStatusValue
+	}
+
+	cases := []testCase{
+		{
+			name:        "Valid Merge Activity",
+			secretToken: "secret",
+			input: &ProcessMergeActivityInput{
+				ProjectName:      "project",
+				ProjectPath:      "path",
+				ProjectNamespace: "namespace",
+				ProjectID:        "projectID",
+				MergeID:          "mergeID",
+				RepositoryPath:   "repositoryPath",
+				LastCommitSha:    "lastCommitSha",
+			},
+			expectedError:      nil,
+			expectedCommitSha:  "lastCommitSha",
+			expectedMissing:    []*gitlab_api.UserCommitSummary{},
+			expectedSigned:     []*gitlab_api.UserCommitSummary{},
+			expectedCommitMsg:  "EasyCLA check passed. You are authorized to contribute.",
+			expectedCommitURL:  "",
+			expectedCommitStat: gitlab.Success,
+		},
+		{
+			name:        "Invalid Merge Activity",
+			secretToken: "secret",
+			input: &ProcessMergeActivityInput{
+				ProjectName:      "project",
+				ProjectPath:      "path",
+				ProjectNamespace: "namespace",
+				ProjectID:        "projectID",
+				MergeID:          "mergeID",
+				RepositoryPath:   "repositoryPath",
+				LastCommitSha:    "lastCommitSha",
+			},
+			expectedError:      fmt.Errorf("fetching internal gitlab org for following path : repositoryPath failed : error"),
+			expectedCommitSha:  "",
+			expectedMissing:    nil,
+			expectedSigned:     nil,
+			expectedCommitMsg:  "",
+			expectedCommitURL:  "",
+			expectedCommitStat: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			service := &service{
+				gitlabOrgService: mock_gitlab.NewMockOrgService(ctrl),
+				gitLabApp:        mock_gitlab.NewMockApp(ctrl),
+			}
+
+			ctx := context.Background()
+
+			// Mock getGitlabOrganizationFromProjectPath
+			service.gitlabOrgService.EXPECT().GetGitlabOrganizationFromProjectPath(ctx, tc.input.ProjectPath, tc.input.ProjectNamespace).Return(&gitlab_api.GitlabOrganization{}, tc.expectedError)
+
+			// Mock RefreshGitLabOrganizationAuth
+			service.gitlabOrgService.EXPECT().RefreshGitLabOrganizationAuth(ctx, gomock.Any()).Return(&gitlab_api.OauthResponse{}, tc.expectedError)
+
+			// Mock NewGitlabOauthClient
+			service.gitLabApp.EXPECT().NewGitlabOauthClient(gomock.Any(), gomock.Any()).Return(nil, tc.expectedError)
+
+			// Mock GetLatestCommit
+			mockGitlabClient := mock_gitlab.NewMockClient(ctrl)
+			mockGitlabClient.EXPECT().GetLatestCommit(gomock.Any(), tc.input.ProjectID, tc.input.MergeID).Return(&gitlab_api.Commit{}, tc.expectedError)
+			service.gitLabApp.EXPECT().GetGitlabClient().Return(mockGitlabClient, tc.expectedError)
+
+			// Mock FetchMrInfo
+			mockGitlabClient.EXPECT().FetchMrInfo(gomock.Any(), tc.input.ProjectID, tc.input.MergeID).Return(nil, tc.expectedError)
+
+			// Mock getGitlabRepoByName
+			service.getGitlabRepoByName = func(ctx context.Context, repositoryPath string) (*gitlab_api.GitlabRepository, error) {
+				return &gitlab_api.GitlabRepository{}, tc.expectedError
+			}
+
+			// Mock hasUserSigned
+			service.hasUserSigned = func(ctx context.Context, claGroupID string, user *gitlab_api.UserCommitSummary) (bool, error) {
+				return false, tc.expectedError
+			}
+
+			// Mock SetCommitStatus
+			mockGitlabClient.EXPECT().SetCommitStatus(gomock.Any(), tc.input.ProjectID, tc.expectedCommitSha, tc.expectedCommitStat, tc.expectedCommitMsg, tc.expectedCommitURL).Return(tc.expectedError)
+
+			// Mock SetMrComment
+			mockGitlabClient.EXPECT().SetMrComment(gomock.Any(), tc.input.ProjectID, tc.input.MergeID, gomock.Any()).Return(tc.expectedError)
+
+			err := service.ProcessMergeActivity(ctx, tc.secretToken, tc.input)
+			assert.Equal(t, tc.expectedError, err)
+		})
+	}
 }

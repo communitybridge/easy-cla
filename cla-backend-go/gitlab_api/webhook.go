@@ -6,19 +6,20 @@ package gitlab
 import (
 	"fmt"
 
+	gitlab "github.com/communitybridge/easycla/cla-backend-go/gitlab_api"
 	"github.com/xanzy/go-gitlab"
 )
 
 // SetWebHook is responsible for adding the webhook for given projectID, if webhook is there already
 // tries to set the attributes if anything is missing, should be idempotent operation
-func SetWebHook(gitLabClient *gitlab.Client, hookURL string, projectID int, token string) error {
+func SetWebHook(gitLabClient GitLabClient, hookURL string, projectID int, token string) error {
 	existingWebHook, err := findExistingWebHook(gitLabClient, hookURL, projectID)
 	if err != nil {
 		return err
 	}
 
 	if existingWebHook == nil {
-		_, _, err = gitLabClient.Projects.AddProjectHook(projectID, &gitlab.AddProjectHookOptions{
+		_, _, err = gitLabClient.AddProjectHook(projectID, &gitlab.AddProjectHookOptions{
 			URL:                   gitlab.String(hookURL),
 			MergeRequestsEvents:   gitlab.Bool(true),
 			PushEvents:            gitlab.Bool(true),
@@ -33,7 +34,7 @@ func SetWebHook(gitLabClient *gitlab.Client, hookURL string, projectID int, toke
 	}
 
 	if !existingWebHook.EnableSSLVerification || !existingWebHook.MergeRequestsEvents || !existingWebHook.PushEvents {
-		_, _, err = gitLabClient.Projects.EditProjectHook(projectID, existingWebHook.ID, &gitlab.EditProjectHookOptions{
+		_, _, err = gitLabClient.EditProjectHook(projectID, existingWebHook.ID, &gitlab.EditProjectHookOptions{
 			URL:                   gitlab.String(hookURL),
 			MergeRequestsEvents:   gitlab.Bool(true),
 			PushEvents:            gitlab.Bool(true),
@@ -50,7 +51,7 @@ func SetWebHook(gitLabClient *gitlab.Client, hookURL string, projectID int, toke
 }
 
 // RemoveWebHook removes existing webhook from the given project
-func RemoveWebHook(gitLabClient *gitlab.Client, hookURL string, projectID int) error {
+func RemoveWebHook(gitLabClient GitLabClient, hookURL string, projectID int) error {
 	existingWebHook, err := findExistingWebHook(gitLabClient, hookURL, projectID)
 	if err != nil {
 		return err
@@ -60,13 +61,13 @@ func RemoveWebHook(gitLabClient *gitlab.Client, hookURL string, projectID int) e
 		return nil
 	}
 
-	_, err = gitLabClient.Projects.DeleteProjectHook(projectID, existingWebHook.ID)
+	_, err = gitLabClient.DeleteProjectHook(projectID, existingWebHook.ID)
 	return err
 
 }
 
-func findExistingWebHook(gitLabClient *gitlab.Client, hookURL string, projectID int) (*gitlab.ProjectHook, error) {
-	hooks, _, err := gitLabClient.Projects.ListProjectHooks(projectID, &gitlab.ListProjectHooksOptions{})
+func findExistingWebHook(gitLabClient GitLabClient, hookURL string, projectID int) (*gitlab.ProjectHook, error) {
+	hooks, _, err := gitLabClient.ListProjectHooks(projectID, &gitlab.ListProjectHooksOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("fetching hooks for project : %d, failed : %v", projectID, err)
 	}

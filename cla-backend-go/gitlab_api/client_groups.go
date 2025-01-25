@@ -147,7 +147,7 @@ func GetGroupByFullPath(ctx context.Context, client *goGitLab.Client, fullPath s
 }
 
 // GetGroupProjectListByGroupID returns a list of GitLab projects under the specified Organization
-func GetGroupProjectListByGroupID(ctx context.Context, client *goGitLab.Client, groupID int) ([]*goGitLab.Project, error) {
+func GetGroupProjectListByGroupID(ctx context.Context, client GitLabClient, groupID int) ([]*goGitLab.Project, error) {
 	f := logrus.Fields{
 		"functionName":   "gitlab_api.client_groups.GetGroupProjectListByGroupID",
 		utils.XREQUESTID: ctx.Value(utils.XREQUESTID),
@@ -168,7 +168,7 @@ func GetGroupProjectListByGroupID(ctx context.Context, client *goGitLab.Client, 
 	var projectList []*goGitLab.Project
 	for {
 		// https://docs.gitlab.com/ee/api/groups.html#list-a-groups-projects
-		projects, resp, listProjectsErr := client.Groups.ListGroupProjects(groupID, opts)
+		projects, resp, listProjectsErr := client.ListGroupProjects(groupID, opts)
 		if listProjectsErr != nil {
 			msg := fmt.Sprintf("unable to list projects, error: %+v", listProjectsErr)
 			log.WithFields(f).WithError(listProjectsErr).Warn(msg)
@@ -193,7 +193,7 @@ func GetGroupProjectListByGroupID(ctx context.Context, client *goGitLab.Client, 
 }
 
 // ListGroupMembers lists the members of a given groupID
-func ListGroupMembers(ctx context.Context, client *goGitLab.Client, groupID int) ([]*goGitLab.GroupMember, error) {
+func ListGroupMembers(ctx context.Context, client GitLabClient, groupID int) ([]*goGitLab.GroupMember, error) {
 	f := logrus.Fields{
 		"functionName":   "gitlab_api.client_groups.GetGroupMembers",
 		utils.XREQUESTID: ctx.Value(utils.XREQUESTID),
@@ -202,7 +202,7 @@ func ListGroupMembers(ctx context.Context, client *goGitLab.Client, groupID int)
 	log.WithFields(f).Debugf("fetching gitlab members for groupID: %d", groupID)
 
 	opts := &goGitLab.ListGroupMembersOptions{}
-	members, _, err := client.Groups.ListGroupMembers(groupID, opts)
+	members, _, err := client.ListGroupMembers(groupID, opts)
 	if err != nil {
 		log.WithFields(f).Debugf("unable to fetch members for gitlab GroupID : %d", groupID)
 		return nil, err
@@ -212,7 +212,7 @@ func ListGroupMembers(ctx context.Context, client *goGitLab.Client, groupID int)
 
 // ListUserProjectGroups fetches the unique groups of a gitlab users groups,
 // note: it doesn't list the projects/groups the user is member of ..., it's very limited
-func ListUserProjectGroups(ctx context.Context, client *goGitLab.Client, userID int) ([]*UserGroup, error) {
+func ListUserProjectGroups(ctx context.Context, client GitLabClient, userID int) ([]*UserGroup, error) {
 	f := logrus.Fields{
 		"functionName":   "gitlab_api.client_groups.ListUserProjectGroups",
 		utils.XREQUESTID: ctx.Value(utils.XREQUESTID),
@@ -226,7 +226,7 @@ func ListUserProjectGroups(ctx context.Context, client *goGitLab.Client, userID 
 	userGroupsMap := map[string]*UserGroup{}
 	for {
 		log.WithFields(f).Debugf("fetching projects for user id : %d with options : %v", userID, listOptions.ListOptions)
-		projects, resp, err := client.Projects.ListUserProjects(userID, listOptions)
+		projects, resp, err := client.ListUserProjects(userID, listOptions)
 		if err != nil {
 			msg := fmt.Sprintf("listing user : %d projects failed : %v", userID, err)
 			log.WithFields(f).Warn(msg)
